@@ -34,6 +34,7 @@
 #include <curl/curl.h>
 #include <mutex>
 #include <regex>
+#include <fmt/core.h>
 
 class IPInfoResolver : public Thread
 {
@@ -68,7 +69,7 @@ private:
             if (res != CURLE_OK)
             {
                 std::lock_guard<std::mutex> lock(mtx);
-                ServerInstance->SNO.WriteGlobalSno('a', "IPInfo: Failed to get data for %s: %s", resolved_user->nick.c_str(), curl_easy_strerror(res));
+                ServerInstance->SNO.WriteGlobalSno('a', fmt::format("IPInfo: Failed to get data for {}: {}", resolved_user->nick, curl_easy_strerror(res)));
             }
             else
             {
@@ -85,7 +86,7 @@ private:
         if (document.Parse(response.c_str()).HasParseError())
         {
             std::lock_guard<std::mutex> lock(mtx);
-            ServerInstance->SNO.WriteGlobalSno('a', "IPInfo: Failed to parse JSON for %s: %s", user->nick.c_str(), rapidjson::GetParseError_En(document.GetParseError()));
+            ServerInstance->SNO.WriteGlobalSno('a', fmt::format("IPInfo: Failed to parse JSON for {}: {}", user->nick, rapidjson::GetParseError_En(document.GetParseError())));
             return;
         }
 
@@ -156,7 +157,12 @@ public:
     void ReadConfig(ConfigStatus& status) override
     {
         auto& tag = ServerInstance->Config->ConfValue("ipinfo");
-        apikey = tag->getString("apikey", "", 1);
+        apikey = tag->getString("apikey", "");
+
+        if (apikey.empty())
+        {
+            throw ModuleException(this, "<ipinfo:apikey> No APIKEY? This is a required configuration option.");
+        }
 
         const UserManager::LocalList& users = ServerInstance->Users.GetLocalUsers();
         for (const auto& user : users)
@@ -205,3 +211,4 @@ public:
 };
 
 MODULE_INIT(ModuleIPInfo)
+
