@@ -1,63 +1,59 @@
-/*
- * InspIRCd -- Internet Relay Chat Daemon
- *
- *   Copyright (C) 2018 linuxdaemon <linuxdaemon.irc@gmail.com>
- *   Copyright (C) 2013, 2017-2018, 2020-2021 Sadie Powell <sadie@witchery.services>
- *   Copyright (C) 2012-2013 Attila Molnar <attilamolnar@hush.com>
- *   Copyright (C) 2012, 2019 Robby <robby@chatbelgie.be>
- *   Copyright (C) 2009-2010 Daniel De Graaf <danieldg@inspircd.org>
- *   Copyright (C) 2008 Thomas Stagner <aquanight@inspircd.org>
- *   Copyright (C) 2007 Dennis Friis <peavey@inspircd.org>
- *   Copyright (C) 2005, 2008 Robin Burchell <robin+git@viroteck.net>
- *   Copyright (C) 2004, 2006, 2010 Craig Edwards <brain@inspircd.org>
- *
- * This file is part of InspIRCd.  InspIRCd is free software: you can
- * redistribute it and/or modify it under the terms of the GNU General Public
- * License as published by the Free Software Foundation, version 2.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-/// $ModAuthor: InspIRCd Developers & reverse add mixedcharacterutf8 function.
-/// $ModDepends: core 4
-/// $ModDesc: Allows the server administrator to define inappropriate phrases and regex patterns that are not allowed to be used in private or channel messages.
-/// $modConfig: <module name="m_censorplus">
-/// $modConfig: <censorplus emojiregex="^[\p{Emoji}]+$" whitelistregex="^[\\p{Latin}\\p{Common} ]+$" kiwiircregex="[:;][-~]?[)DdpP]|O[:;]3">
-/// $CompilerFlags: find_compiler_flags("icu-i18n")
-/// $LinkerFlags: find_linker_flags("icu-i18n")
 /// $CompilerFlags: find_compiler_flags("icu-uc")
 /// $LinkerFlags: find_linker_flags("icu-uc")
+/// $CompilerFlags: find_compiler_flags("icu-i18n")
+/// $LinkerFlags: find_linker_flags("icu-i18n")
+/// $CompilerFlags: -I/usr/local/include
+/// $LinkerFlags: -L/usr/local/lib -lhs
 
 #include "inspircd.h"
 #include "modules/exemption.h"
 #include "numerichelper.h"
 #include "utility/string.h"
-#include <codecvt>
-#include <locale>
+#include <hs/hs.h> // Hyperscan
 #include <unicode/regex.h>
 #include <unicode/unistr.h>
+#include <codecvt>
+#include <locale>
 
 typedef insp::flat_map<std::string, std::string, irc::insensitive_swo> CensorMap;
 
 class ModuleCensor : public Module
 {
- private:
+private:
 	CheckExemption::EventProvider exemptionprov;
 	CensorMap censors;
 	SimpleUserMode cu;
 	SimpleChannelMode cc;
 	std::unique_ptr<icu::RegexPattern> emoji_pattern;
-	std::unique_ptr<icu::RegexPattern> whitelist_pattern;
 	std::unique_ptr<icu::RegexPattern> kiwiirc_pattern;
-	std::string emoji_regex_str;
 	std::string whitelist_regex_str;
-	std::string kiwiirc_regex_str;
+
+	hs_database_t* whitelist_db = nullptr;
+	hs_scratch_t* scratch = nullptr;
+
+	static int onMatch(unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx) {
+		bool* matched = (bool*)ctx;
+		*matched = true;
+		return 0;
+	}
+
+	bool CompileRegex(const std::string& pattern, hs_database_t** db) {
+		hs_compile_error_t* compile_err;
+		if (hs_compile(pattern.c_str(), HS_FLAG_UTF8 | HS_FLAG_UCP, HS_MODE_BLOCK, nullptr, db, &compile_err) != HS_SUCCESS) {
+			ServerInstance->Logs.Normal(MODNAME, "Failed to compile regex pattern: %s", compile_err->message);
+			hs_free_compile_error(compile_err);
+			return false;
+		}
+		return true;
+	}
+
+	bool IsMatch(hs_database_t* db, const std::string& text) {
+		bool matched = false;
+		if (hs_scan(db, text.c_str(), text.length(), 0, scratch, onMatch, &matched) != HS_SUCCESS) {
+			ServerInstance->Logs.Normal(MODNAME, "Hyperscan scan error");
+		}
+		return matched;
+	}
 
 	bool IsMixedUTF8(const std::string& text)
 	{
@@ -87,20 +83,6 @@ class ModuleCensor : public Module
 		}
 
 		return false;
-	}
-
-	// Helper function to convert UTF-8 string to UTF-32
-	std::u32string to_utf32(const std::string& utf8)
-	{
-		std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> convert;
-		return convert.from_bytes(utf8);
-	}
-
-	// Helper function to convert UTF-32 character to UTF-8
-	std::string to_utf8(char32_t utf32_char)
-	{
-		std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> convert;
-		return convert.to_bytes(utf32_char);
 	}
 
 	bool IsEmojiOnly(const std::string& text)
@@ -141,19 +123,15 @@ class ModuleCensor : public Module
 			return true;
 		}
 
-		UErrorCode status = U_ZERO_ERROR;
-		icu::UnicodeString ustr(text.c_str(), "UTF-8");
-		std::unique_ptr<icu::RegexMatcher> whitelist_matcher(whitelist_pattern->matcher(ustr, status));
-		if (U_FAILURE(status))
-		{
-			ServerInstance->Logs.Normal(MODNAME, "Failed to create regex matcher for whitelist: %s", u_errorName(status));
-			return false;
-		}
+		// First, try to match the whitelist using Hyperscan
+		if (IsMatch(whitelist_db, text))
+			return true;
 
-		return whitelist_matcher->matches(status) || IsEmojiOnly(text) || IsKiwiIRCOnly(text);
+		// Then, try to match the text against emoji and KiwiIRC patterns using ICU
+		return IsEmojiOnly(text) || IsKiwiIRCOnly(text);
 	}
 
- public:
+public:
 	ModuleCensor()
 		: Module(VF_NONE, "Allows the server administrator to define inappropriate phrases that are not allowed to be used in private or channel messages and blocks messages with mixed UTF-8 scripts, only allowing certain Unicode smileys.")
 		, exemptionprov(this)
@@ -177,9 +155,9 @@ class ModuleCensor : public Module
 		censors.swap(newcensors);
 
 		const auto& tag = ServerInstance->Config->ConfValue("censorplus");
-		emoji_regex_str = tag->getString("emojiregex", "^[\\p{Emoji}]+$");
-		whitelist_regex_str = tag->getString("whitelistregex", "^[\\p{Latin}\\p{Common} ]+$");
-		kiwiirc_regex_str = tag->getString("kiwiircregex", "[:;][-~]?[)DdpP]|O[:;]3");
+		std::string emoji_regex_str = tag->getString("emojiregex");
+		whitelist_regex_str = tag->getString("whitelistregex");
+		std::string kiwiirc_regex_str = tag->getString("kiwiircregex");
 
 		UErrorCode icu_status = U_ZERO_ERROR;
 		emoji_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(emoji_regex_str), 0, icu_status));
@@ -189,17 +167,20 @@ class ModuleCensor : public Module
 		}
 
 		icu_status = U_ZERO_ERROR;
-		whitelist_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(whitelist_regex_str), 0, icu_status));
-		if (U_FAILURE(icu_status))
-		{
-			throw ModuleException(this, INSP_FORMAT("Failed to compile whitelist regex pattern: {}", u_errorName(icu_status)));
-		}
-
-		icu_status = U_ZERO_ERROR;
 		kiwiirc_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(kiwiirc_regex_str), 0, icu_status));
 		if (U_FAILURE(icu_status))
 		{
 			throw ModuleException(this, INSP_FORMAT("Failed to compile KiwiIRC regex pattern: {}", u_errorName(icu_status)));
+		}
+
+		// Compile Hyperscan databases
+		if (!CompileRegex(whitelist_regex_str, &whitelist_db))
+		{
+			throw ModuleException(this, "Failed to compile whitelist regex pattern for Hyperscan");
+		}
+
+		if (hs_alloc_scratch(whitelist_db, &scratch) != HS_SUCCESS) {
+			throw ModuleException(this, "Failed to allocate Hyperscan scratch space");
 		}
 	}
 
@@ -214,28 +195,28 @@ class ModuleCensor : public Module
 
 		switch (target.type)
 		{
-			case MessageTarget::TYPE_USER:
-			{
-				User* targuser = target.Get<User>();
-				if (!targuser->IsModeSet(cu))
-					return MOD_RES_PASSTHRU;
-				break;
-			}
-
-			case MessageTarget::TYPE_CHANNEL:
-			{
-				auto* targchan = target.Get<Channel>();
-				if (!targchan->IsModeSet(cc))
-					return MOD_RES_PASSTHRU;
-
-				ModResult result = exemptionprov.Check(user, targchan, "censor");
-				if (result == MOD_RES_ALLOW)
-					return MOD_RES_PASSTHRU;
-				break;
-			}
-
-			default:
+		case MessageTarget::TYPE_USER:
+		{
+			User* targuser = target.Get<User>();
+			if (!targuser->IsModeSet(cu))
 				return MOD_RES_PASSTHRU;
+			break;
+		}
+
+		case MessageTarget::TYPE_CHANNEL:
+		{
+			auto* targchan = target.Get<Channel>();
+			if (!targchan->IsModeSet(cc))
+				return MOD_RES_PASSTHRU;
+
+			ModResult result = exemptionprov.Check(user, targchan, "censor");
+			if (result == MOD_RES_ALLOW)
+				return MOD_RES_PASSTHRU;
+			break;
+		}
+
+		default:
+			return MOD_RES_PASSTHRU;
 		}
 
 		if (IsMixedUTF8(details.text) || !IsAllowed(details.text))
@@ -299,3 +280,4 @@ class ModuleCensor : public Module
 };
 
 MODULE_INIT(ModuleCensor)
+
