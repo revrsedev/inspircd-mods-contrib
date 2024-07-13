@@ -27,7 +27,8 @@
 /// $ModAuthor: InspIRCd Developers & reverse add mixedcharacterutf8 function.
 /// $ModDepends: core 4
 /// $ModDesc: Allows the server administrator to define inappropriate phrases and regex patterns that are not allowed to be used in private or channel messages.
-
+/// $modConfig: <module name="m_censorplus">
+/// $modConfig: <censorplus emojiregex="^[\p{Emoji}]+$" whitelistregex="^[\\p{Latin}\\p{Common} ]+$" kiwiircregex="[:;][-~]?[)DdpP]|O[:;]3">
 
 ///$CompilerFlags: find_compiler_flags("icu-uc")
 ///$LinkerFlags: find_linker_flags("icu-uc")
