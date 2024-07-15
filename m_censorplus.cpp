@@ -280,4 +280,3 @@ public:
 };
 
 MODULE_INIT(ModuleCensor)
-
