@@ -30,6 +30,7 @@ private:
 	std::string whitelist_regex_str;
 	hs_database_t* whitelist_db = nullptr;
 	hs_scratch_t* scratch = nullptr;
+	hs_stream_t* stream = nullptr;
 
 	static int onMatch(unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx) {
 		bool* matched = (bool*)ctx;
@@ -94,34 +95,28 @@ private:
 
 	bool IsMatch(hs_database_t* db, const std::string& text) {
 		bool matched = false;
-		if (hs_scan(db, text.c_str(), text.length(), 0, scratch, onMatch, &matched) != HS_SUCCESS) {
+		if (hs_scan_stream(stream, text.c_str(), text.length(), 0, scratch, onMatch, &matched) != HS_SUCCESS) {
 			ServerInstance->Logs.Normal(MODNAME, "Hyperscan scan error");
 		}
 		return matched;
 	}
 
-	bool IsMixedUTF8(const std::string& text)
-	{
+	bool IsMixedUTF8(const std::string& text) {
 		if (text.empty())
 			return false;
 
 		enum ScriptType { SCRIPT_UNKNOWN, SCRIPT_LATIN, SCRIPT_NONLATIN };
 		ScriptType detected = SCRIPT_UNKNOWN;
 
-		for (const auto& c : text)
-		{
+		for (const auto& c : text) {
 			if (static_cast<unsigned char>(c) < 128)
 				continue; // ASCII characters are ignored
 
-			if (std::isalpha(static_cast<unsigned char>(c)))
-			{
+			if (std::isalpha(static_cast<unsigned char>(c))) {
 				ScriptType current = std::islower(static_cast<unsigned char>(c)) || std::isupper(static_cast<unsigned char>(c)) ? SCRIPT_LATIN : SCRIPT_NONLATIN;
-				if (detected == SCRIPT_UNKNOWN)
-				{
+				if (detected == SCRIPT_UNKNOWN) {
 					detected = current;
-				}
-				else if (detected != current)
-				{
+				} else if (detected != current) {
 					return true; // Mixed scripts detected
 				}
 			}
@@ -130,13 +125,11 @@ private:
 		return false;
 	}
 
-	bool IsEmojiOnly(const std::string& text)
-	{
+	bool IsEmojiOnly(const std::string& text) {
 		UErrorCode status = U_ZERO_ERROR;
 		icu::UnicodeString ustr(text.c_str(), "UTF-8");
 		std::unique_ptr<icu::RegexMatcher> emoji_matcher(emoji_pattern->matcher(ustr, status));
-		if (U_FAILURE(status))
-		{
+		if (U_FAILURE(status)) {
 			ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to create regex matcher for emojis: {}", u_errorName(status)));
 			return false;
 		}
@@ -145,13 +138,11 @@ private:
 		return emoji_matcher->matches(status);
 	}
 
-	bool IsKiwiIRCOnly(const std::string& text)
-	{
+	bool IsKiwiIRCOnly(const std::string& text) {
 		UErrorCode status = U_ZERO_ERROR;
 		icu::UnicodeString ustr(text.c_str(), "UTF-8");
 		std::unique_ptr<icu::RegexMatcher> kiwiirc_matcher(kiwiirc_pattern->matcher(ustr, status));
-		if (U_FAILURE(status))
-		{
+		if (U_FAILURE(status)) {
 			ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to create regex matcher for KiwiIRC: {}", u_errorName(status)));
 			return false;
 		}
@@ -160,11 +151,9 @@ private:
 		return kiwiirc_matcher->matches(status);
 	}
 
-	bool IsAllowed(const std::string& text)
-	{
+	bool IsAllowed(const std::string& text) {
 		// Allow ASCII characters and common symbols by default
-		if (std::all_of(text.begin(), text.end(), [](unsigned char c) { return c >= 32 && c <= 126; }))
-		{
+		if (std::all_of(text.begin(), text.end(), [](unsigned char c) { return c >= 32 && c <= 126; })) {
 			return true;
 		}
 
@@ -190,13 +179,13 @@ public:
 			hs_free_database(whitelist_db);
 		if (scratch)
 			hs_free_scratch(scratch);
+		if (stream)
+			hs_close_stream(stream, scratch, nullptr, nullptr);
 	}
 
-	void ReadConfig(ConfigStatus& status) override
-	{
+	void ReadConfig(ConfigStatus& status) override {
 		CensorMap newcensors;
-		for (const auto& [_, badword_tag] : ServerInstance->Config->ConfTags("badword"))
-		{
+		for (const auto& [_, badword_tag] : ServerInstance->Config->ConfTags("badword")) {
 			const std::string text = badword_tag->getString("text");
 			if (text.empty())
 				throw ModuleException(this, INSP_FORMAT("<badword:text> is empty! at {}", badword_tag->source.str()));
@@ -213,15 +202,13 @@ public:
 
 		UErrorCode icu_status = U_ZERO_ERROR;
 		emoji_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(emoji_regex_str), 0, icu_status));
-		if (U_FAILURE(icu_status))
-		{
+		if (U_FAILURE(icu_status)) {
 			throw ModuleException(this, INSP_FORMAT("Failed to compile emoji regex pattern: {}", u_errorName(icu_status)));
 		}
 
 		icu_status = U_ZERO_ERROR;
 		kiwiirc_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(kiwiirc_regex_str), 0, icu_status));
-		if (U_FAILURE(icu_status))
-		{
+		if (U_FAILURE(icu_status)) {
 			throw ModuleException(this, INSP_FORMAT("Failed to compile KiwiIRC regex pattern: {}", u_errorName(icu_status)));
 		}
 
@@ -235,10 +222,13 @@ public:
 		if (hs_alloc_scratch(whitelist_db, &scratch) != HS_SUCCESS) {
 			throw ModuleException(this, "Failed to allocate Hyperscan scratch space");
 		}
+
+		if (hs_open_stream(whitelist_db, 0, &stream) != HS_SUCCESS) {
+			throw ModuleException(this, "Failed to open Hyperscan stream");
+		}
 	}
 
-	ModResult OnUserPreMessage(User* user, MessageTarget& target, MessageDetails& details) override
-	{
+	ModResult OnUserPreMessage(User* user, MessageTarget& target, MessageDetails& details) override {
 		if (!IS_LOCAL(user))
 			return MOD_RES_PASSTHRU;
 
@@ -247,18 +237,15 @@ public:
 			return MOD_RES_PASSTHRU;
 
 		try {
-			switch (target.type)
-			{
-			case MessageTarget::TYPE_USER:
-			{
+			switch (target.type) {
+			case MessageTarget::TYPE_USER: {
 				User* targuser = target.Get<User>();
 				if (!targuser->IsModeSet(cu))
 					return MOD_RES_PASSTHRU;
 				break;
 			}
 
-			case MessageTarget::TYPE_CHANNEL:
-			{
+			case MessageTarget::TYPE_CHANNEL: {
 				auto* targchan = target.Get<Channel>();
 				if (!targchan->IsModeSet(cc))
 					return MOD_RES_PASSTHRU;
@@ -273,21 +260,18 @@ public:
 				return MOD_RES_PASSTHRU;
 			}
 
-			if (IsMixedUTF8(details.text) || !IsAllowed(details.text))
-			{
+			if (IsMixedUTF8(details.text) || !IsAllowed(details.text)) {
 				const std::string msg = "Your message contained disallowed characters and was blocked. IRC operators have been notified (Spamfilter purpose).";
 
 				// Announce to opers
 				std::string oper_announcement;
-				if (target.type == MessageTarget::TYPE_CHANNEL)
-				{
+				if (target.type == MessageTarget::TYPE_CHANNEL) {
 					auto* targchan = target.Get<Channel>();
 					oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} in channel {} sent a message containing disallowed characters: '{}', which was blocked.", user->nick, targchan->name, details.text);
 					ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
 					user->WriteNumeric(Numerics::CannotSendTo(targchan, msg));
 				}
-				else
-				{
+				else {
 					auto* targuser = target.Get<User>();
 					oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} sent a private message to {} containing disallowed characters: '{}', which was blocked.", user->nick, targuser->nick, details.text);
 					ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
@@ -296,24 +280,19 @@ public:
 				return MOD_RES_DENY;
 			}
 
-			for (const auto& [find, replace] : censors)
-			{
+			for (const auto& [find, replace] : censors) {
 				size_t censorpos;
-				while ((censorpos = irc::find(details.text, find)) != std::string::npos)
-				{
-					if (replace.empty())
-					{
+				while ((censorpos = irc::find(details.text, find)) != std::string::npos) {
+					if (replace.empty()) {
 						const std::string msg = INSP_FORMAT("Your message to this channel contained a banned phrase ({}) and was blocked. IRC operators have been notified (Spamfilter purpose).", find);
 
 						// Announce to opers
 						std::string oper_announcement;
-						if (target.type == MessageTarget::TYPE_CHANNEL)
-						{
+						if (target.type == MessageTarget::TYPE_CHANNEL) {
 							auto* targchan = target.Get<Channel>();
 							oper_announcement = INSP_FORMAT("CensorPlus: User {} in channel {} sent a message containing banned phrase ({}): '{}', which was blocked.", user->nick, targchan->name, find, details.text);
 						}
-						else
-						{
+						else {
 							auto* targuser = target.Get<User>();
 							oper_announcement = INSP_FORMAT("CensorPlus: User {} sent a private message to {} containing banned phrase ({}): '{}', which was blocked.", user->nick, targuser->nick, find, details.text);
 						}
@@ -338,4 +317,3 @@ public:
 };
 
 MODULE_INIT(ModuleCensor)
-
