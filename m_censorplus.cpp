@@ -163,14 +163,14 @@ public:
 		emoji_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(emoji_regex_str), 0, icu_status));
 		if (U_FAILURE(icu_status))
 		{
-			throw ModuleException(this, INSP_FORMAT("Failed to compile emoji regex pattern: %s", u_errorName(icu_status)));
+			throw ModuleException(this, INSP_FORMAT("Failed to compile emoji regex pattern: {}", u_errorName(icu_status)));
 		}
 
 		icu_status = U_ZERO_ERROR;
 		kiwiirc_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(kiwiirc_regex_str), 0, icu_status));
 		if (U_FAILURE(icu_status))
 		{
-			throw ModuleException(this, INSP_FORMAT("Failed to compile KiwiIRC regex pattern: %s", u_errorName(icu_status)));
+			throw ModuleException(this, INSP_FORMAT("Failed to compile KiwiIRC regex pattern: {}", u_errorName(icu_status)));
 		}
 
 		// Compile Hyperscan databases
@@ -249,7 +249,7 @@ public:
 			{
 				if (replace.empty())
 				{
-					const std::string msg = INSP_FORMAT("Your message to this channel contained a banned phrase ({}) and was blocked. IRC operators have been notified (Spamfilter purpose).", find);
+					const std::string msg = INSP_FORMAT("Your message to this channel contained a banned phrase ({}), and was blocked. IRC operators have been notified (Spamfilter purpose).", find);
 
 					// Announce to opers
 					std::string oper_announcement;
@@ -280,3 +280,4 @@ public:
 };
 
 MODULE_INIT(ModuleCensor)
+
