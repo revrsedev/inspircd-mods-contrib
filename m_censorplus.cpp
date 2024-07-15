@@ -40,7 +40,7 @@ private:
 	bool CompileRegex(const std::string& pattern, hs_database_t** db) {
 		hs_compile_error_t* compile_err;
 		if (hs_compile(pattern.c_str(), HS_FLAG_UTF8 | HS_FLAG_UCP, HS_MODE_BLOCK, nullptr, db, &compile_err) != HS_SUCCESS) {
-			ServerInstance->Logs.Normal(MODNAME, "Failed to compile regex pattern: %s", compile_err->message);
+			ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to compile regex pattern: {}", compile_err->message));
 			hs_free_compile_error(compile_err);
 			return false;
 		}
@@ -92,7 +92,7 @@ private:
 		std::unique_ptr<icu::RegexMatcher> emoji_matcher(emoji_pattern->matcher(ustr, status));
 		if (U_FAILURE(status))
 		{
-			ServerInstance->Logs.Normal(MODNAME, "Failed to create regex matcher for emojis: %s", u_errorName(status));
+			ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to create regex matcher for emojis: {}", u_errorName(status)));
 			return false;
 		}
 
@@ -107,7 +107,7 @@ private:
 		std::unique_ptr<icu::RegexMatcher> kiwiirc_matcher(kiwiirc_pattern->matcher(ustr, status));
 		if (U_FAILURE(status))
 		{
-			ServerInstance->Logs.Normal(MODNAME, "Failed to create regex matcher for KiwiIRC: %s", u_errorName(status));
+			ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to create regex matcher for KiwiIRC: {}", u_errorName(status)));
 			return false;
 		}
 
@@ -147,7 +147,7 @@ public:
 		{
 			const std::string text = badword_tag->getString("text");
 			if (text.empty())
-				throw ModuleException(this, "<badword:text> is empty! at " + badword_tag->source.str());
+				throw ModuleException(this, INSP_FORMAT("<badword:text> is empty! at {}", badword_tag->source.str()));
 
 			const std::string replace = badword_tag->getString("replace");
 			newcensors[text] = replace;
@@ -163,14 +163,14 @@ public:
 		emoji_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(emoji_regex_str), 0, icu_status));
 		if (U_FAILURE(icu_status))
 		{
-			throw ModuleException(this, INSP_FORMAT("Failed to compile emoji regex pattern: %s", u_errorName(icu_status)));
+			throw ModuleException(this, INSP_FORMAT("Failed to compile emoji regex pattern: {}", u_errorName(icu_status)));
 		}
 
 		icu_status = U_ZERO_ERROR;
 		kiwiirc_pattern = std::unique_ptr<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(kiwiirc_regex_str), 0, icu_status));
 		if (U_FAILURE(icu_status))
 		{
-			throw ModuleException(this, INSP_FORMAT("Failed to compile KiwiIRC regex pattern: %s", u_errorName(icu_status)));
+			throw ModuleException(this, INSP_FORMAT("Failed to compile KiwiIRC regex pattern: {}", u_errorName(icu_status)));
 		}
 
 		// Compile Hyperscan databases
@@ -228,14 +228,14 @@ public:
 			if (target.type == MessageTarget::TYPE_CHANNEL)
 			{
 				auto* targchan = target.Get<Channel>();
-				oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User %s in channel %s sent a message containing disallowed characters: '%s', which was blocked.", user->nick, targchan->name, details.text);
+				oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} in channel {} sent a message containing disallowed characters: '{}', which was blocked.", user->nick, targchan->name, details.text);
 				ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
 				user->WriteNumeric(Numerics::CannotSendTo(targchan, msg));
 			}
 			else
 			{
 				auto* targuser = target.Get<User>();
-				oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User %s sent a private message to %s containing disallowed characters: '%s', which was blocked.", user->nick, targuser->nick, details.text);
+				oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} sent a private message to {} containing disallowed characters: '{}', which was blocked.", user->nick, targuser->nick, details.text);
 				ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
 				user->WriteNumeric(Numerics::CannotSendTo(targuser, msg));
 			}
@@ -249,19 +249,19 @@ public:
 			{
 				if (replace.empty())
 				{
-					const std::string msg = INSP_FORMAT("Your message to this channel contained a banned phrase (%s) and was blocked. IRC operators have been notified (Spamfilter purpose).", find);
+					const std::string msg = INSP_FORMAT("Your message to this channel contained a banned phrase ({}) and was blocked. IRC operators have been notified (Spamfilter purpose).", find);
 
 					// Announce to opers
 					std::string oper_announcement;
 					if (target.type == MessageTarget::TYPE_CHANNEL)
 					{
 						auto* targchan = target.Get<Channel>();
-						oper_announcement = INSP_FORMAT("CensorPlus: User %s in channel %s sent a message containing banned phrase (%s): '%s', which was blocked.", user->nick, targchan->name, find, details.text);
+						oper_announcement = INSP_FORMAT("CensorPlus: User {} in channel {} sent a message containing banned phrase ({}): '{}', which was blocked.", user->nick, targchan->name, find, details.text);
 					}
 					else
 					{
 						auto* targuser = target.Get<User>();
-						oper_announcement = INSP_FORMAT("CensorPlus: User %s sent a private message to %s containing banned phrase (%s): '%s', which was blocked.", user->nick, targuser->nick, find, details.text);
+						oper_announcement = INSP_FORMAT("CensorPlus: User {} sent a private message to {} containing banned phrase ({}): '{}', which was blocked.", user->nick, targuser->nick, find, details.text);
 					}
 					ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
 
@@ -280,3 +280,4 @@ public:
 };
 
 MODULE_INIT(ModuleCensor)
+
