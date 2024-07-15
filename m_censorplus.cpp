@@ -14,6 +14,7 @@
 #include <unicode/unistr.h>
 #include <codecvt>
 #include <locale>
+#include <fstream>
 
 typedef insp::flat_map<std::string, std::string, irc::insensitive_swo> CensorMap;
 
@@ -27,7 +28,6 @@ private:
 	std::unique_ptr<icu::RegexPattern> emoji_pattern;
 	std::unique_ptr<icu::RegexPattern> kiwiirc_pattern;
 	std::string whitelist_regex_str;
-
 	hs_database_t* whitelist_db = nullptr;
 	hs_scratch_t* scratch = nullptr;
 
@@ -39,11 +39,56 @@ private:
 
 	bool CompileRegex(const std::string& pattern, hs_database_t** db) {
 		hs_compile_error_t* compile_err;
-		if (hs_compile(pattern.c_str(), HS_FLAG_UTF8 | HS_FLAG_UCP, HS_MODE_BLOCK, nullptr, db, &compile_err) != HS_SUCCESS) {
+		if (hs_compile(pattern.c_str(), HS_FLAG_UTF8 | HS_FLAG_UCP, HS_MODE_STREAM, nullptr, db, &compile_err) != HS_SUCCESS) {
 			ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to compile regex pattern: {}", compile_err->message));
 			hs_free_compile_error(compile_err);
 			return false;
 		}
+		return true;
+	}
+
+	bool SerializeDatabase(hs_database_t* db, const std::string& filepath) {
+		char* serialized_db = nullptr;
+		size_t serialized_db_size = 0;
+		if (hs_serialize_database(db, &serialized_db, &serialized_db_size) != HS_SUCCESS) {
+			ServerInstance->Logs.Normal(MODNAME, "Failed to serialize Hyperscan database.");
+			return false;
+		}
+
+		std::ofstream ofs(filepath, std::ios::binary);
+		if (!ofs) {
+			free(serialized_db);
+			ServerInstance->Logs.Normal(MODNAME, "Failed to open file for writing serialized Hyperscan database.");
+			return false;
+		}
+
+		ofs.write(serialized_db, serialized_db_size);
+		free(serialized_db);
+
+		return ofs.good();
+	}
+
+	bool DeserializeDatabase(const std::string& filepath, hs_database_t** db) {
+		std::ifstream ifs(filepath, std::ios::binary | std::ios::ate);
+		if (!ifs) {
+			ServerInstance->Logs.Normal(MODNAME, "Failed to open file for reading serialized Hyperscan database.");
+			return false;
+		}
+
+		std::streamsize size = ifs.tellg();
+		ifs.seekg(0, std::ios::beg);
+
+		std::vector<char> buffer(size);
+		if (!ifs.read(buffer.data(), size)) {
+			ServerInstance->Logs.Normal(MODNAME, "Failed to read serialized Hyperscan database.");
+			return false;
+		}
+
+		if (hs_deserialize_database(buffer.data(), size, db) != HS_SUCCESS) {
+			ServerInstance->Logs.Normal(MODNAME, "Failed to deserialize Hyperscan database.");
+			return false;
+		}
+
 		return true;
 	}
 
@@ -140,6 +185,13 @@ public:
 	{
 	}
 
+	~ModuleCensor() override {
+		if (whitelist_db)
+			hs_free_database(whitelist_db);
+		if (scratch)
+			hs_free_scratch(scratch);
+	}
+
 	void ReadConfig(ConfigStatus& status) override
 	{
 		CensorMap newcensors;
@@ -173,10 +225,11 @@ public:
 			throw ModuleException(this, INSP_FORMAT("Failed to compile KiwiIRC regex pattern: {}", u_errorName(icu_status)));
 		}
 
-		// Compile Hyperscan databases
-		if (!CompileRegex(whitelist_regex_str, &whitelist_db))
-		{
-			throw ModuleException(this, "Failed to compile whitelist regex pattern for Hyperscan");
+		const std::string db_path = "/home/debian/irc/ircd/inspircd/run/conf/hyperscan/whitelist.hsdb";
+		if (!DeserializeDatabase(db_path, &whitelist_db)) {
+			if (!CompileRegex(whitelist_regex_str, &whitelist_db) || !SerializeDatabase(whitelist_db, db_path)) {
+				throw ModuleException(this, "Failed to compile or serialize whitelist regex pattern for Hyperscan");
+			}
 		}
 
 		if (hs_alloc_scratch(whitelist_db, &scratch) != HS_SUCCESS) {
@@ -193,88 +246,93 @@ public:
 		if (user->IsOper())
 			return MOD_RES_PASSTHRU;
 
-		switch (target.type)
-		{
-		case MessageTarget::TYPE_USER:
-		{
-			User* targuser = target.Get<User>();
-			if (!targuser->IsModeSet(cu))
-				return MOD_RES_PASSTHRU;
-			break;
-		}
+		try {
+			switch (target.type)
+			{
+			case MessageTarget::TYPE_USER:
+			{
+				User* targuser = target.Get<User>();
+				if (!targuser->IsModeSet(cu))
+					return MOD_RES_PASSTHRU;
+				break;
+			}
 
-		case MessageTarget::TYPE_CHANNEL:
-		{
-			auto* targchan = target.Get<Channel>();
-			if (!targchan->IsModeSet(cc))
-				return MOD_RES_PASSTHRU;
-
-			ModResult result = exemptionprov.Check(user, targchan, "censor");
-			if (result == MOD_RES_ALLOW)
-				return MOD_RES_PASSTHRU;
-			break;
-		}
-
-		default:
-			return MOD_RES_PASSTHRU;
-		}
-
-		if (IsMixedUTF8(details.text) || !IsAllowed(details.text))
-		{
-			const std::string msg = "Your message contained disallowed characters and was blocked. IRC operators have been notified (Spamfilter purpose).";
-
-			// Announce to opers
-			std::string oper_announcement;
-			if (target.type == MessageTarget::TYPE_CHANNEL)
+			case MessageTarget::TYPE_CHANNEL:
 			{
 				auto* targchan = target.Get<Channel>();
-				oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} in channel {} sent a message containing disallowed characters: '{}', which was blocked.", user->nick, targchan->name, details.text);
-				ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
-				user->WriteNumeric(Numerics::CannotSendTo(targchan, msg));
-			}
-			else
-			{
-				auto* targuser = target.Get<User>();
-				oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} sent a private message to {} containing disallowed characters: '{}', which was blocked.", user->nick, targuser->nick, details.text);
-				ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
-				user->WriteNumeric(Numerics::CannotSendTo(targuser, msg));
-			}
-			return MOD_RES_DENY;
-		}
+				if (!targchan->IsModeSet(cc))
+					return MOD_RES_PASSTHRU;
 
-		for (const auto& [find, replace] : censors)
-		{
-			size_t censorpos;
-			while ((censorpos = irc::find(details.text, find)) != std::string::npos)
+				ModResult result = exemptionprov.Check(user, targchan, "censor");
+				if (result == MOD_RES_ALLOW)
+					return MOD_RES_PASSTHRU;
+				break;
+			}
+
+			default:
+				return MOD_RES_PASSTHRU;
+			}
+
+			if (IsMixedUTF8(details.text) || !IsAllowed(details.text))
 			{
-				if (replace.empty())
+				const std::string msg = "Your message contained disallowed characters and was blocked. IRC operators have been notified (Spamfilter purpose).";
+
+				// Announce to opers
+				std::string oper_announcement;
+				if (target.type == MessageTarget::TYPE_CHANNEL)
 				{
-					const std::string msg = INSP_FORMAT("Your message to this channel contained a banned phrase ({}) and was blocked. IRC operators have been notified (Spamfilter purpose).", find);
-
-					// Announce to opers
-					std::string oper_announcement;
-					if (target.type == MessageTarget::TYPE_CHANNEL)
-					{
-						auto* targchan = target.Get<Channel>();
-						oper_announcement = INSP_FORMAT("CensorPlus: User {} in channel {} sent a message containing banned phrase ({}): '{}', which was blocked.", user->nick, targchan->name, find, details.text);
-					}
-					else
-					{
-						auto* targuser = target.Get<User>();
-						oper_announcement = INSP_FORMAT("CensorPlus: User {} sent a private message to {} containing banned phrase ({}): '{}', which was blocked.", user->nick, targuser->nick, find, details.text);
-					}
+					auto* targchan = target.Get<Channel>();
+					oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} in channel {} sent a message containing disallowed characters: '{}', which was blocked.", user->nick, targchan->name, details.text);
 					ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
-
-					if (target.type == MessageTarget::TYPE_CHANNEL)
-						user->WriteNumeric(Numerics::CannotSendTo(target.Get<Channel>(), msg));
-					else
-						user->WriteNumeric(Numerics::CannotSendTo(target.Get<User>(), msg));
-					return MOD_RES_DENY;
+					user->WriteNumeric(Numerics::CannotSendTo(targchan, msg));
 				}
-
-				details.text.replace(censorpos, find.size(), replace);
+				else
+				{
+					auto* targuser = target.Get<User>();
+					oper_announcement = INSP_FORMAT("MixedCharacterUTF8: User {} sent a private message to {} containing disallowed characters: '{}', which was blocked.", user->nick, targuser->nick, details.text);
+					ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
+					user->WriteNumeric(Numerics::CannotSendTo(targuser, msg));
+				}
+				return MOD_RES_DENY;
 			}
+
+			for (const auto& [find, replace] : censors)
+			{
+				size_t censorpos;
+				while ((censorpos = irc::find(details.text, find)) != std::string::npos)
+				{
+					if (replace.empty())
+					{
+						const std::string msg = INSP_FORMAT("Your message to this channel contained a banned phrase ({}) and was blocked. IRC operators have been notified (Spamfilter purpose).", find);
+
+						// Announce to opers
+						std::string oper_announcement;
+						if (target.type == MessageTarget::TYPE_CHANNEL)
+						{
+							auto* targchan = target.Get<Channel>();
+							oper_announcement = INSP_FORMAT("CensorPlus: User {} in channel {} sent a message containing banned phrase ({}): '{}', which was blocked.", user->nick, targchan->name, find, details.text);
+						}
+						else
+						{
+							auto* targuser = target.Get<User>();
+							oper_announcement = INSP_FORMAT("CensorPlus: User {} sent a private message to {} containing banned phrase ({}): '{}', which was blocked.", user->nick, targuser->nick, find, details.text);
+						}
+						ServerInstance->SNO.WriteGlobalSno('a', oper_announcement);
+
+						if (target.type == MessageTarget::TYPE_CHANNEL)
+							user->WriteNumeric(Numerics::CannotSendTo(target.Get<Channel>(), msg));
+						else
+							user->WriteNumeric(Numerics::CannotSendTo(target.Get<User>(), msg));
+						return MOD_RES_DENY;
+					}
+
+					details.text.replace(censorpos, find.size(), replace);
+				}
+			}
+		} catch (const std::exception& e) {
+			ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Exception in OnUserPreMessage: {}", e.what()));
 		}
+
 		return MOD_RES_PASSTHRU;
 	}
 };
