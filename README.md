@@ -2,6 +2,6 @@
 ### USE AT YOUR OWN RISK
 
 # Come and say hi at:<br>
-Servers: inspircd.tchatzone.fr<br>
-Channel, Canal: #dev<br>
-Support language: French, Spanish and English.
+Servers: irc.tchatzone.fr<br>
+Salon, Channel, Canal: #dev<br>
+Supported language: French, Spanish and English.
