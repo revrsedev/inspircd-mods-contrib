@@ -1,7 +1,7 @@
 /*
  * InspIRCd -- Internet Relay Chat Daemon
  *
- *   Copyright (C) 2015-2016 Jean Chevronnet  <mike.chevronnet@gmail.com>
+ *   Copyright (C) 2015-2016 reverse Chevronnet  mike.chevronnet@gmail.com
  *
  * This file is part of InspIRCd.  InspIRCd is free software; you can
  * redistribute it and/or modify it under the terms of the GNU General Public
@@ -20,7 +20,7 @@
 /// $LinkerFlags: find_linker_flags("sqlite3")
 
 /// $ModAuthor: reverse mike.chevronnet@gmail.com
-/// $ModConfig: <captchaconfig dbpath="/path/to/your/db.sqlite3" ports="6667,6697" url="http://example.com/verify/" message="You must solve a CAPTCHA to connect. Please visit">
+/// $ModConfig: <captchaconfig dbpath="/path/to/your/db.sqlite3" ports="6667,6697" url="http://recaptcha.redlatina.chat/ircaccess/">
 /// $ModDepends: core 4
 /// $ModDesc: Requires users to solve a CAPTCHA before connecting by checking an SQLite database.
 
@@ -32,7 +32,6 @@ class ModuleCaptchaCheck : public Module
 private:
     std::string dbpath;
     std::string captcha_url;
-    std::string captcha_message;
     sqlite3* db;
     std::set<int> ports;
 
@@ -65,11 +64,8 @@ public:
             throw ModuleException(this, "<captchaconfig:url> is a required configuration option.");
         }
 
-        captcha_message = tag->getString("message", "You must solve a CAPTCHA to connect. Please visit");
-
         ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Configured database path: {}", dbpath));
         ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Configured CAPTCHA URL: {}", captcha_url));
-        ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Configured CAPTCHA message: {}", captcha_message));
 
         // Parse the ports
         ports.clear();
@@ -165,7 +161,7 @@ public:
 
         if (!CheckCaptcha(ip))
         {
-            user->WriteNotice(INSP_FORMAT("{} {}.", captcha_message, captcha_url));
+            user->WriteNotice("** You must solve a CAPTCHA to connect. Please visit " + captcha_url + " and then reconnect.");
             ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("User {} denied access due to unsolved CAPTCHA (IP: {})", user->nick, ip));
             ServerInstance->Users.QuitUser(user, "CAPTCHA not solved.");
             return MOD_RES_DENY;
