@@ -20,7 +20,7 @@
 /// $LinkerFlags: find_linker_flags("sqlite3")
 
 /// $ModAuthor: reverse mike.chevronnet@gmail.com
-/// $ModConfig: <captchaconfig dbpath="/path/to/your/db.sqlite3" ports="6667,6697" url="http://recaptcha.redlatina.chat/ircaccess/">
+/// $ModConfig: <captchaconfig dbpath="/path/to/your/db.sqlite3" ports="6667,6697" url="http://example.com/verify/">
 /// $ModDepends: core 4
 /// $ModDesc: Requires users to solve a CAPTCHA before connecting by checking an SQLite database.
 
