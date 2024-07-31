@@ -34,13 +34,13 @@ public:
 
 	CmdResult Handle(User* user, const Params& parameters) override
 	{
-		const size_t max_ident_length = 12;  // Typical maximum length for ident in IRC
-		const std::string& ident = parameters[0];
+		const size_t max_ident_length = 12;
+		std::string ident = parameters[0];
 
 		if (ident.size() > max_ident_length)
 		{
-			user->WriteNotice("*** SETNICKIDENT: Username is too long");
-			return CmdResult::FAILURE;
+			ident.resize(max_ident_length);  // Truncate ident to 12 characters
+			user->WriteNotice("*** SETNICKIDENT: Username truncated to 12 characters");
 		}
 
 		for (char c : ident)
@@ -53,7 +53,7 @@ public:
 		}
 
 		user->ChangeDisplayedUser(ident);
-		ServerInstance->SNO.WriteGlobalSno('a', "{} used SETNICKIDENT to change their username to '{}'", user->nick, ident);
+		ServerInstance->SNO.WriteGlobalSno('a', INSP_FORMAT("{} used SETNICKIDENT to change their username to '{}'", user->nick, ident));
 
 		return CmdResult::SUCCESS;
 	}
@@ -79,10 +79,15 @@ public:
 			const size_t max_ident_length = 12;
 
 			if (newident.size() > max_ident_length)
-				newident.resize(max_ident_length);
+				newident.resize(max_ident_length);  // Truncate to maximum length
 
 			user->ChangeDisplayedUser(newident);
 		}
+	}
+
+	~ModuleSetNickIdent() override
+	{
+		// Clean up resources if any (standard practice even if not necessary)
 	}
 };
 
