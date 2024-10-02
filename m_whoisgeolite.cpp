@@ -1,7 +1,7 @@
 /*
  * InspIRCd -- Internet Relay Chat Daemon
  *
- *   Copyright (C) 2024 reverse
+ *   Copyright (C) 2024 Your Name
  *
  * This file contains a third-party module for InspIRCd. You can
  * redistribute it and/or modify it under the terms of the GNU General Public
@@ -18,7 +18,7 @@
 
 /// $ModAuthor: reverse <mike.chevronnet@gmail.com>
 /// $ModDesc: Adds city information to WHOIS using the MaxMind database.
-/// $ModConfig: <geolite dbpath="folder/geodata/GeoLite2-City.mmdb">
+/// $ModConfig: add path <geolite dbpath="path/geodata/GeoLite2-City.mmdb">
 /// $ModDepends: core 4
 
 /// $CompilerFlags: find_compiler_flags("libmaxminddb")
@@ -45,7 +45,7 @@ private:
 
 public:
 	ModuleWhoisGeoLite()
-		: Module(VF_OPTCOMMON, "Adds city information to WHOIS using the Maxmind database.")
+		: Module(VF_OPTCOMMON, "Adds city information to WHOIS using the MaxMind database.")
 		, Whois::EventListener(this), db_loaded(false)
 	{
 	}
@@ -69,7 +69,13 @@ public:
 
 	void OnWhois(Whois::Context& whois) override
 	{
-		User* target = whois.GetTarget();
+		User* source = whois.GetSource();  // The user issuing the WHOIS command
+		User* target = whois.GetTarget();  // The user being WHOIS'd
+
+		// Only allow IRC operators to see the city information
+		if (!source->IsOper()) {
+			return;
+		}
 
 		// Check if the user is remote
 		if (!IS_LOCAL(target)) {
@@ -131,3 +137,4 @@ public:
 };
 
 MODULE_INIT(ModuleWhoisGeoLite)
+
