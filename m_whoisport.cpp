@@ -17,7 +17,7 @@
  */
 
 /// $ModAuthor: reverse <mike.chevronnet@gmail.com>
-/// $ModDesc: Adds the port of the user to the WHOIS response.
+/// $ModDesc: Adds the port of the user to the WHOIS response for operators only.
 /// $ModDepends: core 4
 
 #include "inspircd.h"
@@ -29,26 +29,32 @@ class ModuleWhoisPort final
 {
 public:
 	ModuleWhoisPort()
-		: Module(VF_OPTCOMMON, "Adds the port number of the user to the WHOIS response.")
+		: Module(VF_OPTCOMMON, "Adds the port number of the user to the WHOIS response for operators only.")
 		, Whois::EventListener(this)
 	{
 	}
 
 	void OnWhois(Whois::Context& whois) override
 	{
+		User* source = whois.GetSource();
 		User* target = whois.GetTarget();
 
-		// user is local or remote.
+		// Only show port information if the requesting user (source) is an IRC operator.
+		if (!source->IsOper())
+			return;
+
+		// Check if the target user is local or remote.
 		LocalUser* luser = IS_LOCAL(target);
 		if (!luser)
 			return;
 
-		// socket address.
+		// Get the port the user is connected on.
 		int port = luser->server_sa.port();
 
-		// send the port information in the WHOIS response.
-		whois.SendLine(RPL_WHOISSPECIAL, "*", "is connected on port " + ConvToStr(port));
+		// Send the port information in the WHOIS response, but only for operators.
+		whois.SendLine(RPL_WHOISSPECIAL, "*", "is using port " + ConvToStr(port));
 	}
 };
 
 MODULE_INIT(ModuleWhoisPort)
+
