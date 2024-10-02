@@ -1,7 +1,7 @@
 /*
  * InspIRCd -- Internet Relay Chat Daemon
  *
- *   Copyright (C) 2024 Your Name
+ *   Copyright (C) 2024 reverse
  *
  * This file contains a third-party module for InspIRCd. You can
  * redistribute it and/or modify it under the terms of the GNU General Public
