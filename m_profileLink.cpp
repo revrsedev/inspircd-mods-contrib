@@ -79,7 +79,7 @@ public:
 		else
 		{
 			// Indicate that the account is not registered.
-			whois.SendLine(RPL_WHOISPROFILE, "*", "Profil: L'utilisateur n'est pas connecté ou le compte n'est pas enregistré.");
+			whois.SendLine(RPL_WHOISPROFILE, "*", "Profile: The user is not logged in or the account is not registered.");
 		}
 	}
 };
