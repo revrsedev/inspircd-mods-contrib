@@ -13,13 +13,14 @@
 /// $LinkerFlags: find_linker_flags("libpq")
 
 /// $ModAuthor: reverse mike.chevronnet@gmail.com
-/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" url="http://example.com/verify/">
+/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" url="http://example.com/verify/" whitelistchan="#help,#opers">
 /// $ModDepends: core 4
 
 #include "inspircd.h"
 #include "extension.h"
 #include <libpq-fe.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <chrono>
 
 class ModuleCaptchaCheck : public Module
@@ -27,6 +28,7 @@ class ModuleCaptchaCheck : public Module
 private:
     std::string conninfo;
     std::string captcha_url;
+    std::unordered_set<std::string> whitelist_channels;
     PGconn* db;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> ip_cache;
     static constexpr int CACHE_DURATION_MINUTES = 10;
@@ -211,6 +213,17 @@ public:
             throw ModuleException(this, "<captchaconfig:url> is a required configuration option.");
         }
 
+        std::string whitelist = tag->getString("whitelistchan");
+        if (!whitelist.empty())
+        {
+            irc::commasepstream whiteliststream(whitelist);
+            std::string channel;
+            while (whiteliststream.GetToken(channel))
+            {
+                whitelist_channels.insert(channel);
+            }
+        }
+
         db = GetConnection();
     }
 
@@ -224,12 +237,18 @@ public:
 
     ModResult OnUserPreJoin(LocalUser* user, Channel* chan, const std::string& cname, std::string& privs, const std::string& keygiven, bool override) override
     {
+        // Allow users to bypass reCAPTCHA check for whitelisted channels
+        if (whitelist_channels.count(cname))
+        {
+            return MOD_RES_PASSTHRU;
+        }
+
         std::string client_sa_str = user->client_sa.str();
         std::string ip = ExtractIP(client_sa_str);
 
         if (!CheckCaptcha(ip))
         {
-            user->WriteNotice("** CAPTCHA verification required: You must verify at " + captcha_url + " before joining channels.");
+            user->WriteNotice("** reCAPTCHA: Google reCAPTCHA verification is required: You must verify at " + captcha_url + " before joining channels.");
             return MOD_RES_DENY;
         }
 
