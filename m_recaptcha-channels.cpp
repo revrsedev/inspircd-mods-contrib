@@ -13,7 +13,7 @@
 /// $LinkerFlags: find_linker_flags("libpq")
 
 /// $ModAuthor: reverse mike.chevronnet@gmail.com
-/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" url="http://example.com/verify/" whitelistchan="#help,#opers">
+/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" url="http://example.com/verify/" whitelistchan="#help,#blabla">
 /// $ModDepends: core 4
 
 #include "inspircd.h"
@@ -48,43 +48,42 @@ private:
     }
 
     bool CheckCaptcha(const std::string& ip)
+{
+    auto now = std::chrono::steady_clock::now();
+
+    // Check cache
+    if (ip_cache.find(ip) != ip_cache.end() && now < ip_cache[ip])
     {
-        auto now = std::chrono::steady_clock::now();
-
-        // Check cache
-        if (ip_cache.find(ip) != ip_cache.end() && now < ip_cache[ip])
-        {
-            return true;
-        }
-
-        PGconn* conn = GetConnection();
-        if (!conn)
-        {
-            ServerInstance->Logs.Normal(MODNAME, "Database connection unavailable, skipping CAPTCHA check.");
-            return true; // Allow actions if database is unavailable
-        }
-
-        std::string query = INSP_FORMAT("SELECT COUNT(*) FROM ircaccess_alloweduser WHERE ip_address = '{}'", ip);
-        PGresult* res = PQexec(conn, query.c_str());
-
-        if (PQresultStatus(res) != PGRES_TUPLES_OK)
-        {
-            ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to execute query: {}", PQerrorMessage(conn)));
-            PQclear(res);
-            return true; // Allow actions if query fails
-        }
-
-        int count = atoi(PQgetvalue(res, 0, 0));
-        PQclear(res);
-
-        if (count > 0)
-        {
-            ip_cache[ip] = now + std::chrono::minutes(CACHE_DURATION_MINUTES); // Cache for defined duration
-            return true;
-        }
-
-        return false;
+        return true;
     }
+
+    PGconn* conn = GetConnection();
+    if (!conn)
+    {
+        throw ModuleException(this, "Database connection unavailable, unable to verify CAPTCHA.");
+    }
+
+    std::string query = INSP_FORMAT("SELECT COUNT(*) FROM ircaccess_alloweduser WHERE ip_address = '{}'", ip);
+    PGresult* res = PQexec(conn, query.c_str());
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK)
+    {
+        std::string error_message = INSP_FORMAT("Failed to execute query: {}", PQerrorMessage(conn));
+        PQclear(res);
+        throw ModuleException(this, error_message.c_str());
+    }
+
+    int count = atoi(PQgetvalue(res, 0, 0));
+    PQclear(res);
+
+    if (count > 0)
+    {
+        ip_cache[ip] = now + std::chrono::minutes(CACHE_DURATION_MINUTES); // Cache for defined duration
+        return true;
+    }
+
+    return false;
+}
 
     std::string ExtractIP(const std::string& client_sa_str)
     {
@@ -237,7 +236,7 @@ public:
 
     ModResult OnUserPreJoin(LocalUser* user, Channel* chan, const std::string& cname, std::string& privs, const std::string& keygiven, bool override) override
     {
-        // Allow users to bypass reCAPTCHA check for whitelisted channels
+        // Allow users to bypass CAPTCHA check for whitelisted channels
         if (whitelist_channels.count(cname))
         {
             return MOD_RES_PASSTHRU;
