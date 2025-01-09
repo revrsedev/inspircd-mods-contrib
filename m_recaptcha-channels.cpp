@@ -13,7 +13,7 @@
 /// $LinkerFlags: find_linker_flags("libpq")
 
 /// $ModAuthor: reverse mike.chevronnet@gmail.com
-/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" url="http://example.com/verify/" whitelistchan="#help,#blabla">
+/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" url="http://example.com/verify/" whitelistchan="#help,#support">
 /// $ModDepends: core 4
 
 #include "inspircd.h"
@@ -31,6 +31,8 @@ private:
     std::unordered_set<std::string> whitelist_channels;
     PGconn* db;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> ip_cache;
+    StringExtItem captcha_success; // Extension item for syncing captcha status
+
     static constexpr int CACHE_DURATION_MINUTES = 10;
 
     PGconn* GetConnection()
@@ -40,50 +42,49 @@ private:
             db = PQconnectdb(conninfo.c_str());
             if (PQstatus(db) != CONNECTION_OK)
             {
-                ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("Failed to connect to PostgreSQL database: {}", PQerrorMessage(db)));
-                return nullptr;
+                throw ModuleException(this, "Database connection unavailable, unable to verify CAPTCHA.");
             }
         }
         return db;
     }
 
     bool CheckCaptcha(const std::string& ip)
-{
-    auto now = std::chrono::steady_clock::now();
-
-    // Check cache
-    if (ip_cache.find(ip) != ip_cache.end() && now < ip_cache[ip])
     {
-        return true;
-    }
+        auto now = std::chrono::steady_clock::now();
 
-    PGconn* conn = GetConnection();
-    if (!conn)
-    {
-        throw ModuleException(this, "Database connection unavailable, unable to verify CAPTCHA.");
-    }
+        // Check cache
+        if (ip_cache.find(ip) != ip_cache.end() && now < ip_cache[ip])
+        {
+            return true;
+        }
 
-    std::string query = INSP_FORMAT("SELECT COUNT(*) FROM ircaccess_alloweduser WHERE ip_address = '{}'", ip);
-    PGresult* res = PQexec(conn, query.c_str());
+        PGconn* conn = GetConnection();
+        if (!conn)
+        {
+            throw ModuleException(this, "Database connection unavailable, unable to verify CAPTCHA.");
+        }
 
-    if (PQresultStatus(res) != PGRES_TUPLES_OK)
-    {
-        std::string error_message = INSP_FORMAT("Failed to execute query: {}", PQerrorMessage(conn));
+        std::string query = INSP_FORMAT("SELECT COUNT(*) FROM ircaccess_alloweduser WHERE ip_address = '{}'", ip);
+        PGresult* res = PQexec(conn, query.c_str());
+
+        if (PQresultStatus(res) != PGRES_TUPLES_OK)
+        {
+            std::string error_msg = INSP_FORMAT("Failed to execute query: {}", PQerrorMessage(conn));
+            PQclear(res);
+            throw ModuleException(this, error_msg);
+        }
+
+        int count = atoi(PQgetvalue(res, 0, 0));
         PQclear(res);
-        throw ModuleException(this, error_message.c_str());
+
+        if (count > 0)
+        {
+            ip_cache[ip] = now + std::chrono::minutes(CACHE_DURATION_MINUTES); // Cache for defined duration
+            return true;
+        }
+
+        return false;
     }
-
-    int count = atoi(PQgetvalue(res, 0, 0));
-    PQclear(res);
-
-    if (count > 0)
-    {
-        ip_cache[ip] = now + std::chrono::minutes(CACHE_DURATION_MINUTES); // Cache for defined duration
-        return true;
-    }
-
-    return false;
-}
 
     std::string ExtractIP(const std::string& client_sa_str)
     {
@@ -187,6 +188,7 @@ public:
     ModuleCaptchaCheck()
         : Module(VF_VENDOR, "Requires users to solve a CAPTCHA before joining channels using PostgreSQL."),
           db(nullptr),
+          captcha_success(this, "captcha-success", ExtensionType::USER, true), // Sync with all servers
           cmd(this, this) // Initialize the command
     {
     }
@@ -238,28 +240,23 @@ public:
     {
         // Allow users to bypass CAPTCHA check for whitelisted channels
         if (whitelist_channels.count(cname))
-        {
             return MOD_RES_PASSTHRU;
-        }
+
+        // Sync and check if user has already passed CAPTCHA
+        if (captcha_success.Get(user))
+            return MOD_RES_PASSTHRU;
 
         std::string client_sa_str = user->client_sa.str();
         std::string ip = ExtractIP(client_sa_str);
 
         if (!CheckCaptcha(ip))
         {
-            user->WriteNotice("** reCAPTCHA: Google reCAPTCHA verification is required: You must verify at " + captcha_url + " before joining channels.");
+            user->WriteNotice("*** reCAPTCHA: Google recaptcha verification is required: You must verify at " + captcha_url + " before joining channels. Need assistance? Join #help .");
             return MOD_RES_DENY;
         }
 
+        captcha_success.Set(user, "passed");
         return MOD_RES_PASSTHRU;
-    }
-
-    ~ModuleCaptchaCheck() override
-    {
-        if (db)
-        {
-            PQfinish(db);
-        }
     }
 };
 
