@@ -159,7 +159,7 @@ public:
     std::string client_sa_str = user->client_sa.str();
     std::string ip = ExtractIP(client_sa_str);
 
-    ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("reCAPTCHA: Activated for user {} ({}) on port {}", user->nick, client_sa_str, port));
+    ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("*** reCAPTCHA: Activated for user {} ({}) on port {}", user->nick, client_sa_str, port));
 
     // Check if SASL authentication was successful
     SimpleExtItem<std::string>* saslExt = static_cast<SimpleExtItem<std::string>*>(
@@ -167,26 +167,26 @@ public:
 
     if (saslExt && saslExt->Get(user))
     {
-        ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("reCAPTCHA: User {} bypassed reCAPTCHA check due to successful SASL authentication.", user->nick));
-        ServerInstance->SNO.WriteToSnoMask('a', INSP_FORMAT("reCAPTCHA: User {} bypassed reCAPTCHA check due to successful SASL authentication.", user->nick));
+        ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("*** reCAPTCHA: User {} bypassed reCAPTCHA check due to successful SASL authentication.", user->nick));
+        ServerInstance->SNO.WriteToSnoMask('a', INSP_FORMAT("*** reCAPTCHA: User {} bypassed reCAPTCHA check due to successful SASL authentication.", user->nick));
         return MOD_RES_PASSTHRU;
     }
 
     if (ports.find(port) == ports.end())
     {
-        ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("reCAPTCHA: Port {} is not in the Google reCAPTCHA check list.", port));
+        ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("*** reCAPTCHA: Port {} is not in the Google reCAPTCHA check list.", port));
         return MOD_RES_PASSTHRU;
     }
 
     if (!CheckCaptcha(ip))
     {
-        user->WriteNotice("**reCAPTCHA: You must solve a Google reCAPTCHA to connect. Please visit " + captcha_url + " and then reconnect.");
-        ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("reCAPTCHA: User {} denied access due to unsolved CAPTCHA (IP: {})", user->nick, ip));
-        ServerInstance->Users.QuitUser(user, "reCAPTCHA: Google reCAPTCHA was not solved. Please try again at " + captcha_url + " and then reconnect. Problems? join #help from our website. ");
+        user->WriteNotice("***** reCAPTCHA: You must solve a Google reCAPTCHA to connect. Please visit " + captcha_url + " and then reconnect.");
+        ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("*** reCAPTCHA: User {} denied access due to unsolved CAPTCHA (IP: {})", user->nick, ip));
+        ServerInstance->Users.QuitUser(user, "*** reCAPTCHA: Google reCAPTCHA was not solved. Please try again at " + captcha_url + " and then reconnect. Problems? join #help from our website. ");
         return MOD_RES_DENY;
     }
 
-    ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("reCAPTCHA: User {} allowed access after reCAPTCHA verification (IP: {})", user->nick, ip));
+    ServerInstance->Logs.Normal(MODNAME, INSP_FORMAT("*** reCAPTCHA: User {} allowed access after reCAPTCHA verification (IP: {})", user->nick, ip));
     return MOD_RES_PASSTHRU;
 }
 
@@ -210,7 +210,7 @@ public:
         {
             if (!user->HasPrivPermission("users/auspex"))
             {
-                user->WriteNotice("You do not have permission to use this command.");
+                user->WriteNotice("*** reCAPTCHA: You do not have permission to use this command.");
                 return CmdResult::FAILURE;
             }
 
@@ -219,7 +219,7 @@ public:
                 const std::string& ip = parameters[1];
                 if (ip.length() > IRC_MAX_LENGTH - 50) // Allow room for command overhead
                 {
-                    user->WriteNotice("IP address too long, cannot add.");
+                    user->WriteNotice("*** reCAPTCHA: IP address too long, cannot add.");
                     return CmdResult::FAILURE;
                 }
 
@@ -227,7 +227,7 @@ public:
 
                 if (!conn)
                 {
-                    user->WriteNotice("Database connection error.");
+                    user->WriteNotice("*** reCAPTCHA: Database connection error.");
                     return CmdResult::FAILURE;
                 }
 
@@ -236,13 +236,13 @@ public:
 
                 if (PQresultStatus(res) != PGRES_COMMAND_OK)
                 {
-                    user->WriteNotice(INSP_FORMAT("Failed to add IP: {}", PQerrorMessage(conn)));
+                    user->WriteNotice(INSP_FORMAT("*** reCAPTCHA: Failed to add IP: {}", PQerrorMessage(conn)));
                     PQclear(res);
                     return CmdResult::FAILURE;
                 }
 
                 PQclear(res);
-                user->WriteNotice(INSP_FORMAT("Successfully added IP: {}", ip));
+                user->WriteNotice(INSP_FORMAT("*** reCAPTCHA: Successfully added IP: {}", ip));
                 return CmdResult::SUCCESS;
             }
             else if (parameters[0] == "search")
@@ -250,7 +250,7 @@ public:
                 const std::string& ip = parameters[1];
                 if (ip.length() > IRC_MAX_LENGTH - 50) // Allow room for command overhead
                 {
-                    user->WriteNotice("IP address too long, cannot search.");
+                    user->WriteNotice("*** reCAPTCHA: IP address too long, cannot search.");
                     return CmdResult::FAILURE;
                 }
 
@@ -258,7 +258,7 @@ public:
 
                 if (!conn)
                 {
-                    user->WriteNotice("Database connection error.");
+                    user->WriteNotice("*** reCAPTCHA: Database connection error.");
                     return CmdResult::FAILURE;
                 }
 
@@ -267,18 +267,18 @@ public:
 
                 if (PQresultStatus(res) != PGRES_TUPLES_OK)
                 {
-                    user->WriteNotice(INSP_FORMAT("Failed to search for IP: {}", PQerrorMessage(conn)));
+                    user->WriteNotice(INSP_FORMAT("*** reCAPTCHA: Failed to search for IP: {}", PQerrorMessage(conn)));
                     PQclear(res);
                     return CmdResult::FAILURE;
                 }
 
                 if (PQntuples(res) > 0)
                 {
-                    user->WriteNotice(INSP_FORMAT("IP found: {}", ip));
+                    user->WriteNotice(INSP_FORMAT("*** reCAPTCHA: IP found: {}", ip));
                 }
                 else
                 {
-                    user->WriteNotice(INSP_FORMAT("IP not found: {}", ip));
+                    user->WriteNotice(INSP_FORMAT("*** reCAPTCHA: IP not found: {}", ip));
                 }
 
                 PQclear(res);
@@ -286,7 +286,7 @@ public:
             }
             else
             {
-                user->WriteNotice("Unknown subcommand. Use add <ip> or search <ip>.");
+                user->WriteNotice("*** reCAPTCHA: Unknown subcommand. Use add <ip> or search <ip>. Example: /reCAPTCHA add 127.0.0.1");
                 return CmdResult::FAILURE;
             }
         }
@@ -305,4 +305,3 @@ public:
 };
 
 MODULE_INIT(ModuleCaptchaCheck)
-
