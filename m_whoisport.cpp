@@ -39,10 +39,12 @@ public:
 		User* source = whois.GetSource();
 		User* target = whois.GetTarget();
 
-		// Only show port information if the requesting user (source) is an IRC operator.
-		if (!source->IsOper())
-			return;
-
+		// Only show port information if the requesting user (source) is an IRC operator with privs.
+		if (!user->HasPrivPermission("users/auspex"))
+            {
+                user->WriteNotice("You do not have permission to use this command.");
+                return CmdResult::FAILURE;
+            }
 		// Check if the target user is local or remote.
 		LocalUser* luser = IS_LOCAL(target);
 		if (!luser)
