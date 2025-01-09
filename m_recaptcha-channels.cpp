@@ -31,7 +31,7 @@ private:
     std::unordered_set<std::string> whitelist_channels;
     PGconn* db;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> ip_cache;
-    StringExtItem captcha_success; // Extension item for syncing captcha status
+    StringExtItem captcha_success; // Extension item for syncing recaptcha status
 
     static constexpr int CACHE_DURATION_MINUTES = 10;
 
@@ -186,10 +186,10 @@ private:
 
 public:
     ModuleCaptchaCheck()
-        : Module(VF_VENDOR, "Requires users to solve a CAPTCHA before joining channels using PostgreSQL."),
+        : Module(VF_VENDOR, "Requires users to solve a Google reCAPTCHA before joining channels. (Bots mitigation)"),
           db(nullptr),
           captcha_success(this, "captcha-success", ExtensionType::USER, true), // Sync with all servers
-          cmd(this, this) // Initialize the command
+          cmd(this, this) // Command
     {
     }
 
