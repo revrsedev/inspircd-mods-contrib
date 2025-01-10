@@ -2,5 +2,5 @@
 # MADE BY ME, OR INSPIRED ON OTHERS PPL CODES. #
 ### USE AT YOUR OWN RISK, SOME MODULES MAYBE STILL WORK IN PROGRESS ###
 Where to find me?
-IRC: irc.irc-hispano.org
-Chan: #dev
+IRC: irc.pctronic.fr
+Chan: #devel
