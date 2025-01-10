@@ -10,7 +10,7 @@
  */
 ​
 /// $ModAuthor: reverse mike.chevronnet@gmail.com
-/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" masterserver="master.example.com" url="http://meme.com/verify/" whitelistchan="#help,#support">
+/// $ModConfig: <captchaconfig conninfo="dbname=example user=postgres password=secret hostaddr=127.0.0.1 port=5432" mode="master/slave" masterserver="master.example.com" url="http://meme.com/verify/" whitelistchan="#help,#support" whitelistport="6697,6666">
 /// $ModDepends: core 4
 ​
 /// $CompilerFlags: find_compiler_flags("libpq")
