@@ -1,6 +1,6 @@
 # INSPIRCD 4 MODULES #
 # MADE BY ME, OR INSPIRED ON OTHERS PPL CODES. #
 ### USE AT YOUR OWN RISK, SOME MODULES MAYBE STILL WORK IN PROGRESS ###
-Where to find me?
+Where to find me?<br>
 IRC: irc.pctronic.fr
 Chan: #devel
