@@ -16,6 +16,10 @@
  * along with this program. If not, see <http:// www.gnu.org/licenses/>.
  */
 
+/// $ModAuthor: reverse Chevronnet <mike.chevronnet@gmail.com>
+/// $ModDesc: Store wiki slug of wikipages of the network.
+/// $ModDepends: core 4
+
 #include "inspircd.h"
 #include "modules/sql.h"
 #include <algorithm>
@@ -71,7 +75,7 @@ class ModuleWiki final : public Module {
 
  public:
     ModuleWiki()
-        : Module(VF_VENDOR, "Handles automatic responses with wiki links."),
+        : Module(VF_VENDOR, "Store wiki slug of wikipages of the network."),
           sql(this, "SQL"),
           cmd(this),
           cmdSend(this) {} //  Correctly initialize /SEND command
@@ -264,8 +268,8 @@ void ModuleWiki::ReadConfig(ConfigStatus& status) {
     sql.SetProvider("SQL/" + dbid);
     autoRespond = tag->getBool("autorespond", true);
     caseSensitive = tag->getBool("casesensitive", false);
-    wikiPrefix = tag->getString("wikiprefix", "https:// wiki.hybridirc.com/w/");
-    helpChannel = tag->getString("helpchannel", "#help");
+    wikiPrefix = tag->getString("wikiprefix", "https:// wiki.t-chat.fr/w/");
+    helpChannel = tag->getString("helpchannel", "#aide");
 
     if (!sql) {
         throw ModuleException(this, "*** [wiki] Could not find SQL provider: " + dbid);
