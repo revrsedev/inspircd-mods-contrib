@@ -51,7 +51,7 @@ private:
     std::string GetUserWebSocketOrigin(LocalUser* user)
     {
         if (!websocket_origin)
-            return "Unknown-Origin"; // ❌ No WebSocket extension found
+            return "Unknown-Origin"; // No WebSocket extension found
 
         const std::string* origin = websocket_origin->Get(user);
         return origin ? *origin : "Unknown-Origin"; // Return WebSocket origin or default
@@ -103,7 +103,7 @@ public:
     {
         if (user->server_sa.port() == websocket_port)
         {
-            std::string real_origin = GetUserWebSocketOrigin(user); // ✅ Extract real WebSocket Origin
+            std::string real_origin = GetUserWebSocketOrigin(user); // Extract real WebSocket Origin
 
             if (!IsAllowedOrigin(real_origin))
             {
