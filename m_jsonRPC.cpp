@@ -80,7 +80,7 @@ public:
         if (auth_header.find("Basic ") == 0)
         {
             std::string encoded = auth_header.substr(6);
-            std::string decoded = Base64::Decode(encoded); // ✅ Using correct Base64 decoding function
+            std::string decoded = Base64::Decode(encoded);
 
             return decoded == apiuser + ":" + apipassword;
         }
