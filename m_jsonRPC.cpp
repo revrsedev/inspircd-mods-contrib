@@ -16,7 +16,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/// $ModAuthor: reverse
+/// $ModAuthor: Jean reverse Chevronnet
 /// $ModDesc: Provides a JSON-RPC 2.0 interface for InspIRCd-4.
 /// $ModDepends: core 4
 
